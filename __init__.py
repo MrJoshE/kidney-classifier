@@ -1,31 +1,35 @@
-from enum import unique
-from posixpath import split
-from typing import Dict
-from wsgiref import validate
 import matplotlib.pyplot as plt
-from sympy import beta, subsets
 import numpy as np
-import os
-import PIL
 import tensorflow as tf
-from keras.models import Sequential
 from keras.models import Model
-from keras.models import load_model
-
-from keras import backend as K
-
 from tensorflow import keras
 from keras import layers
 import pandas as pd
 import pathlib
-import glob
-
+import csv
+import shutil
+import os
 
 train_ds = None
 validate_ds = None
 test_ds = None
 img_height = 28
 img_width = 28
+
+
+def sort_training_data():
+    train_dict = {}
+
+    with open('train.csv', mode='r') as inp:
+        reader = csv.reader(inp)
+        train_dict = {rows[0]: rows[1] for rows in reader}
+
+    # Make a new directory each unique value in the training dictionary and put the images with that value in the directory
+    for key in train_dict:
+        path = 'train_sorted/' + str(train_dict[key])
+        if not os.path.exists(path):
+            os.makedirs(path)
+        shutil.copy('train/' + key + '.jpg', path)
 
 
 def predict(model):
@@ -86,16 +90,52 @@ def train(epochs, model: Model):
     train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
     val_ds = validate_ds.cache().prefetch(buffer_size=AUTOTUNE)
 
+    checkpoint_filepath = '/tmp/checkpoint'
+    model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+        filepath=checkpoint_filepath,
+        save_weights_only=True,
+        save_freq='epoch',
+        monitor='val_sparse_categorical_accuracy',
+        mode='max',
+        verbose=0,
+        save_best_only=True
+    )
+
     try:
         history = model.fit(
             train_ds,
             validation_data=val_ds,
-            epochs=epochs
+            epochs=epochs,
+            callbacks=[model_checkpoint_callback]
         )
+
+        model.load_weights(checkpoint_filepath)
+        print('Loaded model with best weights')
+
         latest_accuracy = str(
             history.history['val_sparse_categorical_accuracy'][-1])
 
         print('Latest accuracy: ' + latest_accuracy)
+
+        # summarize history for accuracy
+        plt.plot(history.history['sparse_categorical_accuracy'])
+        plt.plot(history.history['val_sparse_categorical_accuracy'])
+        plt.title('model accuracy')
+        plt.ylabel('accuracy')
+        plt.xlabel('epoch')
+        plt.legend(['train', 'test'], loc='upper left')
+        plt.savefig('accuracy.png')
+        plt.show()
+
+        plt.plot(history.history['loss'])
+        plt.plot(history.history['val_loss'])
+        plt.title('model loss')
+        plt.ylabel('loss')
+        plt.xlabel('epoch')
+        plt.legend(['train', 'test'], loc='upper left')
+        plt.savefig('loss.png')
+        plt.show()
+
     except KeyboardInterrupt:
         print('\nTraining interrupted - predicting now ...')
 
@@ -213,12 +253,6 @@ def loadAndPredict(filename):
 
 
 if (__name__ == "__main__"):
-    # model = make_model('Models//NewIV3-150x150x1-3C.h5')
-    # model = loadModel('past_models/(62.476%)_predictions.h5')
     model = setupModel()
     loadData()
     train(100, model)
-
-    # model = setupModle()
-    # loadAndPredict('Models//NewIV3-150x150x1-3C.h5')
-    # train(130)
